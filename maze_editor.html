@@ -1,0 +1,364 @@
+<html>
+<head>
+<style>
+    body{font-family: Arial; font-size: large;}
+    .button {
+        background-color: #4CAF50;
+        border: none;
+        color: white;
+        padding: 15px 22px;
+        text-align: left;
+        text-decoration: none;
+        outline: none;
+        display: inline-block;
+        font-size: 14px;
+        margin: 4px 2px;
+        cursor: pointer;
+    }
+    .button:active {
+        background-color: #3e8e41;
+        box-shadow: 0 5px #666;
+        transform: translateY(4px);
+    }
+</style>
+    
+<script type="text/glsl" id="vertexShader">
+    attribute mediump vec3 vertexPos;
+    uniform mat4 mvp;
+    void main(void) 
+    {
+        gl_Position = mvp*vec4( vertexPos , 1.0);    
+        gl_PointSize=4.0;
+    }
+</script>
+    
+    
+<script type="text/glsl" id="fragmentShader">    
+    uniform mediump vec3 color;
+    void main(void)
+	{
+		gl_FragColor = vec4(color,1.0);
+	}
+</script>
+    
+<script type="text/javascript" src="MatricesForMaze.js"></script>
+<script type="text/javascript">
+//Global Variables
+        var mvp_loc; 
+        var color_loc;
+        var color=[1,1,1];
+        var bufferSquare;
+        var bufferPoints;
+        var bufferWalls;
+        var bufferRooms;
+        var bufferWallsModel;
+        var rooms_coord=[];
+        var room=[];
+        var epsilon=0.2;
+        var N=0;
+        var provv=[];
+        var data_structure=[];
+        var square_coord=[];
+        var points_coord=[];
+        var flag=false;
+                
+        function setcolor(r,g,b){
+            color[0] = r;
+            color[1] = g;
+            color[2] = b;
+            return color;
+        };
+
+// FUnctions to edit the data structure
+    
+        function doWall(x,y){    
+            if (flag==false)
+            {
+                provv=[x,y];        // set first point
+                flag=true; 
+                return;
+            } else flag = false;
+            if (provv[0]==x && provv[1]==y)
+                return;             // reset first point
+            else if (provv[0]==x)   // add vertical wall
+            {    
+                data_structure =           
+                        VerticalSegment(provv[0],provv[1],x,y,data_structure);
+                drawScene();    
+            } else if(provv[1]==y)  // add horizontal wall
+            {              
+                data_structure = 
+                        HorizontalSegment(provv[0],provv[1],x,y,data_structure);
+                drawScene();    
+            } else
+                console.log("ERROR:Only horizontal and vertical lines are allowed");
+        }
+        
+        function removeWall(x,y){
+            var x_start;
+            var y_start;
+            var x_end;
+            var y_end;
+            if (Number.isInteger(x))        // remove vertical wall
+            {
+                y = Math.floor(y);
+                if (data_structure[N-y-1][x][1]==1)
+                {
+                    var H=getCol(data_structure,x);
+                    var loc=SetDataStructure(H,1);
+                    for (var i=0;i<loc.length;i+=2)
+                        if(y<N-loc[i]&&y>=N-loc[i]+loc[i+1])
+                        {
+                            x_start=x;
+                            y_start=N-loc[i];
+                            x_end=x;
+                            y_end=y_start+loc[i+1];
+                            var segment_length=Math.abs(y_end-y_start);
+                            break;
+                        }  
+                    for (var k=0;k<segment_length;++k)
+                        data_structure[N-y_start+k][x][1]=0;
+                } else console.log("ERROR: No walls found");               
+            } else                          // remove horizontal wall
+            {
+                x = Math.floor(x);
+                if(data_structure[N-y][x][0]==1)
+                {
+                    var loc=SetDataStructure(data_structure[N-y],0);
+                    for (var i=0;i<loc.length;i+=2)
+                        if(x<loc[i]-loc[i+1]&& x>=loc[i])
+                        {
+                            x_start=loc[i];
+                            y_start=y;
+                            x_end=loc[i]-loc[i+1];
+                            y_end=y;
+                            var segment_length=Math.abs(x_end-x_start);
+                            break;
+                        }                
+                    for (var k=0;k<segment_length;++k)
+                        data_structure[N-y][x_start+k][0]=0;
+                } else console.log("ERROR: No walls found");
+            }
+            flag = false; // prevent false init of new wall
+            drawScene();
+        }
+               
+        function doSignpost(x,y){
+            var myFlag=false;
+            for (var i=0;i<room.length;i+=2)
+                if(room[i]==x && room[i+1]==y)
+                {       
+                    room.splice(i,2);
+                    myFlag=true;
+                    break;
+                }
+            if(!myFlag) room.push(x,y);
+            flag = false; // prevent false init of new wall
+            drawScene();
+        }
+               
+        function procPointPosition(x,y){    
+            if (Number.isInteger(x) && Number.isInteger(y))
+                doWall(Math.round(x),Math.round(y));        
+            else if (Number.isInteger(x) || Number.isInteger(y))
+                removeWall(x,y);   
+            else
+                doSignpost(x,y);
+        }
+        
+// WebGL stuff 
+        function setupWebGL(){
+            var canvas=document.getElementById("la_canvas");
+            gl=canvas.getContext("webgl");
+            canvas.addEventListener('contextmenu', function(e) {          
+                if (e.button === 2) {
+                    e.preventDefault();
+                    return false;
+                }
+            }, false);   
+        };
+                
+        function setupBuffer(){
+            bufferSquare = gl.createBuffer() ; 
+            bufferPoints=gl.createBuffer();
+            bufferWalls=gl.createBuffer();
+            bufferRooms=gl.createBuffer();
+            bufferWallsModel=gl.createBuffer();
+        }
+
+        function setupVertexPuller(buffer){
+            gl.bindBuffer( gl.ARRAY_BUFFER , buffer);
+	        gl.vertexAttribPointer(0, 2, gl.FLOAT,false,0,0);
+ 	        gl.enableVertexAttribArray( 0 ); // please send attribute 0
+        }
+        
+        function setupShaders(){
+            var vertShaderId = gl.createShader( gl.VERTEX_SHADER );
+	        var vertShaderSource = document.getElementById("vertexShader").textContent;
+	        gl.shaderSource( vertShaderId, vertShaderSource);
+	        gl.compileShader( vertShaderId );
+
+	        var fragShaderId = gl.createShader( gl.FRAGMENT_SHADER );
+	        var fragShaderSource = document.getElementById("fragmentShader").textContent;
+	        gl.shaderSource( fragShaderId, fragShaderSource);
+	        gl.compileShader( fragShaderId );
+
+            var programId = gl.createProgram();
+	        gl.attachShader( programId, vertShaderId );
+	        gl.attachShader( programId, fragShaderId );
+            gl.bindAttribLocation( programId,0, "vertexPos" );
+            gl.linkProgram( programId );	
+	        gl.useProgram( programId );
+            color_loc = gl.getUniformLocation( programId, "color" );
+            mvp_loc = gl.getUniformLocation( programId, "mvp" );
+        }
+        
+        function setUniforms(){
+            var m1=translationMatrix(-1,-1,0);
+            var m2=scalingMatrix(2/N,2/N,0);
+            mvp=multMatrix(m1,m2);
+            gl.uniformMatrix4fv( mvp_loc, false, new Float32Array(mvp));
+            gl.uniform3f( color_loc, color[0], color[1], color[2]);
+            
+        }
+   
+// My graphics stuff
+        function drawScene(){            
+            //SQUARE
+            setupVertexPuller(bufferSquare);
+            color=setcolor(0,0,0);
+            setUniforms();
+            var data=new Float32Array(square_coord);
+            gl.bindBuffer( gl.ARRAY_BUFFER , bufferSquare );
+            gl.bufferData( gl.ARRAY_BUFFER, data , gl.STATIC_DRAW );          
+            gl.drawArrays( gl.TRIANGLE_STRIP, 0, square_coord.length/2);
+                        
+            //POINTS
+            setupVertexPuller(bufferPoints);
+            color=setcolor(1,0,0);
+            setUniforms();
+            var data_points=new Float32Array(points_coord);
+            gl.bindBuffer( gl.ARRAY_BUFFER , bufferPoints );
+            gl.bufferData( gl.ARRAY_BUFFER, data_points , gl.STATIC_DRAW );
+            gl.drawArrays( gl.POINTS, 0, points_coord.length/2);
+
+            //WALLS
+            setupVertexPuller(bufferWalls);
+            color=setcolor(1,1,1);
+            setUniforms();
+            var walls=CreatesCoordinates(data_structure);
+            if(walls.length>0) {
+                var data_walls=new Float32Array(walls);
+                gl.bindBuffer( gl.ARRAY_BUFFER , bufferWalls);
+                gl.bufferData( gl.ARRAY_BUFFER, data_walls , gl.STATIC_DRAW );
+                gl.drawArrays( gl.LINES, 0, walls.length/2);
+            }
+            
+            //ROOMS
+            if(room.length>1) {
+                setupVertexPuller(bufferRooms);
+                color=setcolor(0,1,0);
+                setUniforms();
+                rooms_coord=CreateRoomsCoord(room);
+                var data_rooms=new Float32Array(rooms_coord);
+                gl.bindBuffer( gl.ARRAY_BUFFER , bufferRooms);
+                gl.bufferData( gl.ARRAY_BUFFER, data_rooms , gl.STATIC_DRAW );
+                gl.drawArrays( gl.TRIANGLES, 0, rooms_coord.length/2);
+            }        
+        }
+        
+        
+// Callbacks
+        function GetGrid()
+        {
+            Init();
+            setUniforms();
+            drawScene();
+        }
+
+        function WriteOnFile ()
+        {   
+            Maze2D={
+                WallsMatrix:data_structure,
+                Rooms:room,
+            };
+            localStorage.setItem('Maze2D',JSON.stringify(Maze2D));
+        }
+        
+        function LoadModel()
+        {
+            var Maze2DModel=JSON.parse(localStorage.getItem("Maze2D"));
+            data_structure=Maze2DModel.WallsMatrix;
+            room=Maze2DModel.Rooms;
+            N=data_structure[0].length-1;
+            square_coord=[0.0,0.0,0.0,N,N,0.0,N,N];
+            
+            for (var i=0;i<N+1;++i){
+                for(var j=0;j<N+1;++j){        
+                    points_coord.push(i);
+                    points_coord.push(j);
+                }
+            }
+            drawScene();       
+        }
+
+       function Init(){
+            N=parseInt(document.getElementById("GridSize").value);
+            square_coord=[0.0,0.0,0.0,N,N,0.0,N,N];
+            data_structure= Creatematrix(N);
+            data_structure=SetWalls(data_structure);
+            room=[];
+            for (var i=0;i<N+1;++i){
+                for(var j=0;j<N+1;++j){              
+                    points_coord.push(i);
+                    points_coord.push(j);
+                }
+            }
+            drawScene();
+        }
+        
+        function DoSomething(event) {         
+            var rect = la_canvas.getBoundingClientRect();
+            Posx = event.clientX;
+            Posy = event.clientY;
+            var x_canvas= (Posx-rect.left);
+            var y_canvas= (Posy-rect.top);
+            x=Math.round(2*N*(x_canvas)/500)/2;
+            y=Math.round(2*N*(500-y_canvas)/500)/2;
+
+            if (event.buttons==1 && x_canvas<=500 && y_canvas<=500){
+                     procPointPosition(x,y);
+            }
+        }
+              
+        function myOnLoad() {
+            setupWebGL();
+            setupBuffer();
+            setupShaders();  
+        }
+        
+        window.onload = myOnLoad;
+        window.onmousedown=DoSomething;
+        
+</script>
+</head>
+       
+<body>
+    <canvas
+        id     = "la_canvas"
+        width  = "500px"
+        height = "500px"
+        style  = "border: 2px solid black"
+    >
+    </canvas>
+    <div>
+        Size:     <input type="number" id="GridSize" value="10">
+        <div>     
+            <button onclick="GetGrid()" class="button">Draw Grid</button>
+            <button onclick="WriteOnFile()" class="button">Save</button>
+            <button onclick="LoadModel()" class="button">Load</button>
+            <button onclick="Init()" class="button">Reset</button>
+        </div>
+    </div>   
+</body>
+</html>

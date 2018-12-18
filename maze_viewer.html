@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>CGAR Project</title>
+		<script type="text/javascript" src="MatricesForMaze.js"></script>
+		<script type="text/javascript" src="mesh.js"></script>
+		<script type="text/javascript" src="matrixStack.js"></script>
+		<script type="text/javascript" src="script.js"></script>
+
+		<script type="text/glsl" id="vertexShader">
+			uniform mat4 mvp;
+			attribute vec3 vertexPos;
+			attribute vec3 normal;
+			attribute vec3 color;
+			varying vec3 norm_i;
+			varying vec3 vColor;
+
+			void main(void) {
+				gl_Position = mvp*vec4(vertexPos , 1.0);
+				norm_i = normal;
+				vColor = color;
+			}
+		</script>
+
+		<script type="text/glsl" id="fragmentShader">
+			precision highp float;
+			varying vec3 norm_i;
+			varying vec3 vColor;
+			uniform vec3 lightDir;
+			uniform vec3 halfWay;
+			//uniform vec3 colDiffuse;
+
+			vec3 lighting(vec3 norm) {
+				const vec3 colAmbient = vec3(0.25, 0.15, 0.2)*1.0;
+				const vec3 colSpecular = vec3(0.4);
+				const float glossiness = 120.0;
+
+				float diffuse = max(dot(norm, lightDir), 0.0);
+				float ambient = max(-dot(norm, lightDir), 0.0);
+				float specular = pow(max(dot(norm,halfWay),0.0), glossiness);
+				return vColor  * diffuse
+					 + colAmbient  * ambient
+					 + colSpecular * specular;
+			}
+
+			void main(void) {
+				vec3 col = lighting(normalize(norm_i));
+				gl_FragColor = vec4(col, 1.0);
+			}
+		</script>
+
+	</head>
+	<style>
+		body{ font-family: Arial; font-size: large; }
+	</style>
+	<body>
+		CGAR CG Project by Andrea Poggi & Ettore Carboni
+		<br></br>
+		<canvas id="maze_canvas" width="700px" height="700px"
+			style="border: 1px solid black">
+		</canvas>
+		<button type="button" onclick="resetView()" id="reset">Reset view</button>
+		<input type="checkbox" onclick="draw()" id="headlightCB">headlight!</input>
+	</body>
+</html>
